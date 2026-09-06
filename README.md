@@ -1,17 +1,56 @@
-## Umbrel Community App Store Template
+# WalterWhiteBTC Umbrel App Store
 
-This repository is a template to create an Umbrel Community App Store. These additional app stores allow developers to distribute applications without submitting to the [Official Umbrel App Store](https://github.com/getumbrel/umbrel-apps).
+Magasin communautaire Umbrel contenant **WalterWhiteBTC Monitoring**.
 
-## How to use:
+## Contenu de l'application
 
-1. Start by clicking the "Use this template" button located above.
-2. Assign an ID and name to your app store within the `umbrel-app-store.yml` file. This file specifies two important attributes:
-    - `id` - Acts as a unique prefix for every app within your Community App Store. You must start your application's ID with your app store's ID. For instance, in this template, the app store ID is `sparkles`, and there's an app named `hello world`. Consequently, the app's ID should be: `sparkles-hello-world`.
-    - `name` - This is the name of the Community App Store displayed in the umbrelOS UI.
-3. Change the name of the `sparkles-hello-world` folder to match your app's ID. The app ID is for you to decide. For example, if your app store ID is `whistles`, and your app is named My Video Downloader, you could set its app ID to `whistles-my-video-downloader`, and rename the folder accordingly.
-4. Next, enter your app's listing details in the `whistles-my-video-downloader/umbrel-app.yml`. These are displayed in the umbrelOS UI.
-5. Include the necessary Docker services in `whistles-my-video-downloader/docker-compose.yml`.
-6. That's it! Your Community App Store, featuring your unique app, is now set up and ready to go. To use your Community App Store, you can add its GitHub url the umbrelOS user interface as shown in the following demo:
+- Prometheus 3.14.0
+- Node Exporter 1.12.1
+- collecte toutes les 15 secondes
+- retention maximale de 30 jours ou 2 Go
+- interface Umbrel sur le port 9091
+- acces direct pour Grafana sur le port 9090
+- limites de 512 Mo pour Prometheus et 128 Mo pour Node Exporter
 
+## Source de donnees Grafana
 
-https://user-images.githubusercontent.com/10330103/197889452-e5cd7e96-3233-4a09-b475-94b754adc7a3.mp4
+L'URL reste :
+
+```text
+http://192.168.1.51:9090
+```
+
+Le tableau de bord Grafana `Node Exporter Full`, identifiant `1860`, reste compatible.
+
+## Installation
+
+Une fois ce dossier publie dans le depot GitHub public
+`WalterWhiteBTC/umbrel-app-store`, l'adresse suivante devient le magasin a
+ajouter dans Umbrel :
+
+```text
+https://github.com/WalterWhiteBTC/umbrel-app-store
+```
+
+## Migration depuis l'installation Docker actuelle
+
+La migration sera effectuee seulement apres apparition de l'application dans
+Umbrel. Le volume actuel `monitoring_prometheus-data` restera intact pendant le
+basculement, ce qui permettra de copier l'historique vers le volume gere par
+l'application.
+
+Les anciennes unites systemd sont :
+
+```text
+walterwhitebtc-monitoring.service
+walterwhitebtc-monitoring.timer
+```
+
+Elles ne seront desactivees qu'au moment de l'installation de l'application,
+afin d'eviter une interruption prematuree de la supervision.
+
+## Securite
+
+L'application ne contient aucune cle privee, seed phrase, adresse de paiement,
+identifiant Bitcoin RPC ou autre secret. Node Exporter accede au systeme de
+fichiers hote en lecture seule et toutes ses capacites Linux sont retirees.

@@ -1,0 +1,43 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: walterwhitebtc-monitoring_prometheus_1
+      APP_PORT: 9090
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.retention.size=2GB"
+    restart: on-failure
+    mem_limit: 512m
+    cpus: 1.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - "${APP_DATA_DIR}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "prometheus-data:/prometheus"
+    depends_on:
+      - node-exporter
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.12.1
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    restart: on-failure
+    read_only: true
+    mem_limit: 128m
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    volumes:
+      - "/:/host:ro,rslave"
+
+volumes:
+  prometheus-data:
