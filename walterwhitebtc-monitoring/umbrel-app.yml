@@ -1,17 +1,18 @@
 manifestVersion: 1
 id: walterwhitebtc-monitoring
 name: WalterWhiteBTC Monitoring
-tagline: Prometheus et Node Exporter pour superviser votre Umbrel
+tagline: Supervision de votre Umbrel et de votre Fluminer T3
 icon: https://raw.githubusercontent.com/WalterWhiteBTC/umbrel-app-store/master/walterwhitebtc-monitoring/icon.svg
 category: Development
-version: "1.0.1"
+version: "1.1.0"
 port: 9091
 description: >-
   WalterWhiteBTC Monitoring collecte et conserve les metriques systeme de votre
-  serveur Umbrel avec Prometheus et Node Exporter. Il fournit les donnees CPU,
-  memoire, stockage, temperature et reseau utilisables dans Grafana. Les mesures
-  sont collectees toutes les 15 secondes et conservees pendant 30 jours, avec
-  une limite de stockage de 2 Go.
+  serveur Umbrel avec Prometheus et Node Exporter. Il collecte egalement en
+  lecture seule le hashrate, la puissance, les temperatures, les ventilateurs,
+  les shares et l'etat de la pool du Fluminer T3 local. Les mesures sont
+  utilisables dans Grafana, relevees toutes les 15 secondes et conservees pendant
+  30 jours, avec une limite de stockage de 2 Go.
 storage:
   dataRoot: data
 developer: WalterWhiteBTC
@@ -22,10 +23,10 @@ repo: https://github.com/WalterWhiteBTC/umbrel-app-store
 support: https://github.com/WalterWhiteBTC/umbrel-app-store/issues
 gallery: []
 releaseNotes: >-
-  Version 1.0.1 : stockage persistant integre a Umbrel, migration automatique
-  des donnees de la version 1.0.0, identifiants theoule-umbrel, controle de
-  sante de Prometheus, acces interne pour Grafana et images Docker verrouillees
-  par empreinte.
+  Version 1.1.0 : ajout d'un collecteur Fluminer T3 strictement en lecture seule,
+  metriques de hashrate, energie, temperature, ventilateurs, shares et pool,
+  prise en charge de l'arret nocturne du mineur et tableau de bord Grafana
+  dedie. Aucune adresse Bitcoin ni aucun mot de passe n'est exporte.
 dependencies: []
 path: ""
 defaultUsername: ""

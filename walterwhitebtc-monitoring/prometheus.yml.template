@@ -18,3 +18,13 @@ scrape_configs:
           instance: "theoule-umbrel"
           site: "theoule"
           role: "principal"
+
+  - job_name: "fluminer"
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ["fluminer-exporter:9817"]
+        labels:
+          instance: "theoule-fluminer-t3"
+          site: "theoule"
+          role: "miner"

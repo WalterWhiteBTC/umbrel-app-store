@@ -49,6 +49,8 @@ services:
         condition: service_completed_successfully
       node-exporter:
         condition: service_started
+      fluminer-exporter:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -77,6 +79,45 @@ services:
       - ALL
     volumes:
       - "/:/host:ro,rslave"
+
+  fluminer-exporter:
+    image: python:3.13.7-alpine3.22@sha256:9ba6d8cbebf0fb6546ae71f2a1c14f6ffd2fdab83af7fa5669734ef30ad48844
+    command:
+      - "python"
+      - "/app/fluminer_exporter.py"
+    user: "65534:65534"
+    restart: on-failure
+    read_only: true
+    mem_limit: 64m
+    cpus: 0.25
+    expose:
+      - "9817"
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      LISTEN_PORT: "9817"
+      FLUMINER_NAME: "theoule-fluminer-t3"
+      FLUMINER_URLS: "http://192.168.1.52,http://fluminer.home"
+      FLUMINER_TIMEOUT: "1.5"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    tmpfs:
+      - "/tmp:size=8m,noexec,nosuid,nodev"
+    volumes:
+      - "${APP_DATA_DIR}/fluminer_exporter.py:/app/fluminer_exporter.py:ro"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:9817/health', timeout=2).read()
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   # Kept for one release so data from version 1.0.0 can be copied safely.
