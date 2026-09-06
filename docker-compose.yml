@@ -1,0 +1,124 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: walterwhitebtc-monitoring_prometheus_1
+      APP_PORT: 9090
+
+  migrate-data:
+    image: alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1
+    user: "0:0"
+    entrypoint: >-
+      /bin/sh -c '
+        set -eu
+        mkdir -p /prometheus
+        if [ -z "$(ls -A /prometheus 2>/dev/null)" ] && [ -n "$(ls -A /legacy 2>/dev/null)" ]; then
+          echo "Migrating Prometheus data from version 1.0.0"
+          cp -a /legacy/. /prometheus/
+        fi
+        chown -R 65534:65534 /prometheus
+        chmod 750 /prometheus
+      '
+    volumes:
+      - "prometheus-data:/legacy:ro"
+      - "${APP_DATA_DIR}/data/prometheus:/prometheus"
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.retention.size=2GB"
+    restart: on-failure
+    stop_grace_period: 1m
+    mem_limit: 512m
+    cpus: 1.0
+    expose:
+      - "9090"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    volumes:
+      - "${APP_DATA_DIR}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "${APP_DATA_DIR}/data/prometheus:/prometheus"
+    depends_on:
+      migrate-data:
+        condition: service_completed_successfully
+      node-exporter:
+        condition: service_started
+      fluminer-exporter:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /bin/promtool
+        - query
+        - instant
+        - http://127.0.0.1:9090
+        - up
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    hostname: "theoule-umbrel"
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    restart: on-failure
+    read_only: true
+    mem_limit: 128m
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    volumes:
+      - "/:/host:ro,rslave"
+
+  fluminer-exporter:
+    image: python:3.13.7-alpine3.22@sha256:9ba6d8cbebf0fb6546ae71f2a1c14f6ffd2fdab83af7fa5669734ef30ad48844
+    command:
+      - "python"
+      - "/app/fluminer_exporter.py"
+    user: "65534:65534"
+    restart: on-failure
+    read_only: true
+    mem_limit: 64m
+    cpus: 0.25
+    expose:
+      - "9817"
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      LISTEN_PORT: "9817"
+      FLUMINER_NAME: "theoule-fluminer-t3"
+      FLUMINER_URLS: "http://192.168.1.52,http://fluminer.home"
+      FLUMINER_TIMEOUT: "1.5"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    tmpfs:
+      - "/tmp:size=8m,noexec,nosuid,nodev"
+    volumes:
+      - "${APP_DATA_DIR}/fluminer_exporter.py:/app/fluminer_exporter.py:ro"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:9817/health', timeout=2).read()
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  # Kept for one release so data from version 1.0.0 can be copied safely.
+  prometheus-data:

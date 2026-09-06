@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""Read-only Prometheus exporter for the Fluminer T3 HTTP API."""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import ProxyHandler, Request, build_opener
+
+
+EXPORTER_VERSION = "1.1.0"
+LISTEN_ADDRESS = os.getenv("LISTEN_ADDRESS", "0.0.0.0")
+LISTEN_PORT = int(os.getenv("LISTEN_PORT", "9817"))
+MINER_NAME = os.getenv("FLUMINER_NAME", "theoule-fluminer-t3")
+MINER_URLS = tuple(
+    url.strip().rstrip("/")
+    for url in os.getenv(
+        "FLUMINER_URLS",
+        "http://192.168.1.52,http://fluminer.home",
+    ).split(",")
+    if url.strip()
+)
+REQUEST_TIMEOUT = float(os.getenv("FLUMINER_TIMEOUT", "1.5"))
+HTTP = build_opener(ProxyHandler({}))
+
+
+def _label(value: Any) -> str:
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+def _number(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _pipe_numbers(value: Any) -> list[float]:
+    if value is None:
+        return []
+    numbers: list[float] = []
+    for item in str(value).split("|"):
+        number = _number(item.strip())
+        if number is not None:
+            numbers.append(number)
+    return numbers
+
+
+def _sample(name: str, value: float, **labels: str) -> str:
+    label_text = ",".join(f'{key}="{_label(item)}"' for key, item in sorted(labels.items()))
+    suffix = f"{{{label_text}}}" if label_text else ""
+    return f"{name}{suffix} {value:g}"
+
+
+def _family(lines: list[str], name: str, help_text: str, metric_type: str = "gauge") -> None:
+    lines.extend((f"# HELP {name} {help_text}", f"# TYPE {name} {metric_type}"))
+
+
+def _fetch_summary() -> tuple[dict[str, Any], str]:
+    errors: list[str] = []
+    for base_url in MINER_URLS:
+        request = Request(
+            f"{base_url}/api/summary",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": f"WalterWhiteBTC-Monitoring/{EXPORTER_VERSION}",
+            },
+            method="GET",
+        )
+        try:
+            with HTTP.open(request, timeout=REQUEST_TIMEOUT) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if payload.get("code") != 0:
+                raise ValueError(f"API code {payload.get('code')!r}")
+            summaries = payload.get("data", {}).get("summary", [])
+            if not summaries or not isinstance(summaries[0], dict):
+                raise ValueError("missing data.summary[0]")
+            return summaries[0], base_url
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            errors.append(f"{base_url}: {type(error).__name__}")
+    raise RuntimeError("; ".join(errors) or "no Fluminer URL configured")
+
+
+def render_metrics(summary: dict[str, Any] | None, duration: float, error: str = "") -> str:
+    labels = {"miner": MINER_NAME}
+    lines: list[str] = []
+
+    _family(lines, "fluminer_exporter_build_info", "Exporter build information.")
+    lines.append(_sample("fluminer_exporter_build_info", 1, version=EXPORTER_VERSION))
+    _family(lines, "fluminer_up", "Whether the Fluminer API request succeeded.")
+    lines.append(_sample("fluminer_up", 1 if summary is not None else 0, **labels))
+    _family(lines, "fluminer_scrape_duration_seconds", "Duration of the Fluminer API request in seconds.")
+    lines.append(_sample("fluminer_scrape_duration_seconds", duration, **labels))
+
+    if summary is None:
+        if error:
+            _family(lines, "fluminer_scrape_error_info", "Last scrape error category.")
+            lines.append(_sample("fluminer_scrape_error_info", 1, miner=MINER_NAME, error=error[:120]))
+        return "\n".join(lines) + "\n"
+
+    model = str(summary.get("model") or "unknown")
+    mode = str(summary.get("mode") or "unknown")
+    _family(lines, "fluminer_info", "Static Fluminer information.")
+    lines.append(_sample("fluminer_info", 1, miner=MINER_NAME, model=model, mode=mode))
+
+    numeric_metrics = (
+        ("hrt", "fluminer_hashrate_realtime_ths", "Current hashrate in terahashes per second.", 0.001),
+        ("havg", "fluminer_hashrate_average_ths", "Average hashrate since miner start in terahashes per second.", 0.001),
+        ("power", "fluminer_power_watts", "Current miner power in watts.", 1.0),
+        ("voltage", "fluminer_voltage_volts", "Current miner voltage in volts.", 1.0),
+        ("current", "fluminer_current_amperes", "Current miner current in amperes.", 1.0),
+        ("uptime", "fluminer_uptime_seconds", "Miner uptime in seconds.", 1.0),
+        ("mode", "fluminer_mode", "Firmware operating mode number.", 1.0),
+        ("errorPercent", "fluminer_error_percent", "Firmware-reported hardware error percentage.", 1.0),
+    )
+    parsed: dict[str, float] = {}
+    for field, metric, help_text, multiplier in numeric_metrics:
+        number = _number(summary.get(field))
+        if number is None:
+            continue
+        number *= multiplier
+        parsed[field] = number
+        _family(lines, metric, help_text)
+        lines.append(_sample(metric, number, **labels))
+
+    if parsed.get("hrt", 0) > 0 and "power" in parsed:
+        _family(lines, "fluminer_efficiency_joules_per_th", "Electrical efficiency in joules per terahash.")
+        lines.append(_sample("fluminer_efficiency_joules_per_th", parsed["power"] / parsed["hrt"], **labels))
+
+    _family(lines, "fluminer_shares_accepted_total", "Firmware-reported accepted shares.", "counter")
+    accepted = _number(summary.get("acc"))
+    if accepted is not None:
+        lines.append(_sample("fluminer_shares_accepted_total", accepted, **labels))
+    _family(lines, "fluminer_shares_rejected_total", "Firmware-reported rejected shares.", "counter")
+    rejected = _number(summary.get("rej"))
+    if rejected is not None:
+        lines.append(_sample("fluminer_shares_rejected_total", rejected, **labels))
+
+    _family(lines, "fluminer_pool_up", "Whether the configured primary pool is alive.")
+    pool_up = 1 if str(summary.get("poolAlive", "0")) == "1" else 0
+    lines.append(_sample("fluminer_pool_up", pool_up, **labels))
+    _family(lines, "fluminer_status_ok", "Whether the firmware reports status OK.")
+    status_ok = 1 if str(summary.get("status", "")).upper() == "OK" else 0
+    lines.append(_sample("fluminer_status_ok", status_ok, **labels))
+
+    temperatures = _pipe_numbers(summary.get("temp"))
+    if temperatures:
+        _family(lines, "fluminer_temperature_celsius", "Firmware temperature sensor reading in degrees Celsius.")
+        for index, temperature in enumerate(temperatures, start=1):
+            lines.append(_sample("fluminer_temperature_celsius", temperature, miner=MINER_NAME, sensor=str(index)))
+
+    fans = _pipe_numbers(summary.get("fan"))
+    if fans:
+        _family(lines, "fluminer_fan_rpm", "Firmware fan speed in revolutions per minute.")
+        for index, rpm in enumerate(fans, start=1):
+            lines.append(_sample("fluminer_fan_rpm", rpm, fan=str(index), miner=MINER_NAME))
+
+    return "\n".join(lines) + "\n"
+
+
+def collect_metrics() -> str:
+    started = time.monotonic()
+    try:
+        summary, _ = _fetch_summary()
+        return render_metrics(summary, time.monotonic() - started)
+    except Exception as error:  # The exporter must stay available while the miner is off.
+        return render_metrics(None, time.monotonic() - started, type(error).__name__)
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "WalterWhiteBTC-Fluminer-Exporter"
+
+    def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+        path = self.path.split("?", 1)[0]
+        if path == "/health":
+            body = b"ok\n"
+            status = 200
+            content_type = "text/plain; charset=utf-8"
+        elif path == "/metrics":
+            body = collect_metrics().encode("utf-8")
+            status = 200
+            content_type = "text/plain; version=0.0.4; charset=utf-8"
+        else:
+            body = b"not found\n"
+            status = 404
+            content_type = "text/plain; charset=utf-8"
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+
+if __name__ == "__main__":
+    if not MINER_URLS:
+        raise SystemExit("FLUMINER_URLS must contain at least one URL")
+    ThreadingHTTPServer((LISTEN_ADDRESS, LISTEN_PORT), Handler).serve_forever()
