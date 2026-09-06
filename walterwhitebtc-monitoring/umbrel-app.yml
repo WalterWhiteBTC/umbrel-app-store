@@ -4,7 +4,7 @@ name: WalterWhiteBTC Monitoring
 tagline: Prometheus et Node Exporter pour superviser votre Umbrel
 icon: https://raw.githubusercontent.com/WalterWhiteBTC/umbrel-app-store/master/walterwhitebtc-monitoring/icon.svg
 category: Development
-version: "1.0.0"
+version: "1.0.1"
 port: 9091
 description: >-
   WalterWhiteBTC Monitoring collecte et conserve les metriques systeme de votre
@@ -12,6 +12,8 @@ description: >-
   memoire, stockage, temperature et reseau utilisables dans Grafana. Les mesures
   sont collectees toutes les 15 secondes et conservees pendant 30 jours, avec
   une limite de stockage de 2 Go.
+storage:
+  dataRoot: data
 developer: WalterWhiteBTC
 website: https://github.com/WalterWhiteBTC
 submitter: WalterWhiteBTC
@@ -20,8 +22,10 @@ repo: https://github.com/WalterWhiteBTC/umbrel-app-store
 support: https://github.com/WalterWhiteBTC/umbrel-app-store/issues
 gallery: []
 releaseNotes: >-
-  Premiere version : Prometheus 3.14.0, Node Exporter 1.12.1, retention de
-  30 jours et acces compatible avec Grafana.
+  Version 1.0.1 : stockage persistant integre a Umbrel, migration automatique
+  des donnees de la version 1.0.0, identifiants theoule-umbrel, controle de
+  sante de Prometheus, acces interne pour Grafana et images Docker verrouillees
+  par empreinte.
 dependencies: []
 path: ""
 defaultUsername: ""
